@@ -451,6 +451,16 @@ impl Forth {
             }
         });
 
+        forth.add_primitive("PAGE", |f| {
+            // PAGE - clear the screen
+            // PLACEHOLDER
+        });
+
+        forth.add_primitive("QUIT", |f| {
+            // QUIT - end the program without printing ok at the end
+            // PLACEHOLDER
+        });
+
         forth
     }
 
