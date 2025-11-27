@@ -649,7 +649,7 @@ impl Forth {
                 let addr = self.words.len();
 
                 self.words
-                    .push(Word::JumpLoop(do_pos as i32 - position as i32));
+                    .push(Word::JumpLoop(do_pos as i32 - addresses.len() as i32));
 
                 addresses.push(addr);
             } else if word.eq("+LOOP") {
@@ -659,7 +659,7 @@ impl Forth {
                 let addr = self.words.len();
 
                 self.words
-                    .push(Word::JumpLoopInc(do_pos as i32 - position as i32));
+                    .push(Word::JumpLoopInc(do_pos as i32 - addresses.len() as i32));
 
                 addresses.push(addr);
             } else if word.eq("IF") {
@@ -687,7 +687,7 @@ impl Forth {
 
                 // patch the earlier IF's JumIfZero to jump to the start of the ELSE block.
                 // calculate the offset
-                let offset = position - if_pos;
+                let offset = addresses.len() - if_pos;
                 let if_word_addr = addresses[if_pos];
                 //let else_address = self.words.len();
                 match &mut self.words[if_word_addr] {
@@ -708,7 +708,7 @@ impl Forth {
                 if let Some(else_pos) = else_stack.pop() {
                     // we have an ELSE before: patch the JMP insert at ELSE
                     let jmp_word_addr = addresses[else_pos];
-                    let offset = position - else_pos;
+                    let offset = addresses.len() - else_pos;
 
                     // let then_address = self.words.len();
                     match &mut self.words[jmp_word_addr] {
@@ -726,7 +726,7 @@ impl Forth {
                     // no ELSE: patch the IF's JumpIfZero to jump to the
                     // instruction after THEN
                     let if_word_addr = addresses[if_pos];
-                    let offset = position - if_pos;
+                    let offset = addresses.len() - if_pos;
                     match &mut self.words[if_word_addr] {
                         Word::JumpIfZero(target) => {
                             *target = offset;
