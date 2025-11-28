@@ -43,11 +43,11 @@ impl Display for Cell {
 enum Word {
     Primitive(Box<dyn Fn(&mut Forth)>),
     Composite(Vec<Address>),
-    Jump(usize),       // unconditional jump to the given offset
-    JumpIfZero(usize), // conditional jump by offset
-    JumpLoop(i32),     // loop jump to do
-    JumpLoopInc(i32),  // incremental loop. value is teh offes to the command next to DO
-    Push(Cell),        // push value to the data stack
+    Jump(i32),        // unconditional jump to the given offset
+    JumpIfZero(i32),  // conditional jump by offset
+    JumpLoop(i32),    // loop jump to do
+    JumpLoopInc(i32), // incremental loop. value is teh offes to the command next to DO
+    Push(Cell),       // push value to the data stack
 }
 
 impl Display for Word {
@@ -451,12 +451,12 @@ impl Forth {
             }
         });
 
-        forth.add_primitive("PAGE", |f| {
+        forth.add_primitive("PAGE", |_f| {
             // PAGE - clear the screen
             // PLACEHOLDER
         });
 
-        forth.add_primitive("QUIT", |f| {
+        forth.add_primitive("QUIT", |_f| {
             // QUIT - end the program without printing ok at the end
             // PLACEHOLDER
         });
@@ -633,9 +633,11 @@ impl Forth {
 
         // Stacks to manage unresolved IF/ELSE/THEN patches
         // the hold indices into 'addresses'
-        let mut if_stack: Vec<Address> = Vec::new();
+        let mut if_stack = Vec::new();
         let mut else_stack: Vec<Address> = Vec::new();
         let mut do_stack = Vec::new();
+        let mut begin_stack = Vec::new();
+        let mut while_stack = Vec::new();
 
         for (position, &word) in definition.iter().enumerate() {
             // 1. Literal values -> push a primitive that will push the Cell at runtime
@@ -645,6 +647,64 @@ impl Forth {
                 self.words.push(Word::Push(val.clone()));
 
                 addresses.push(addr);
+            } else if word.eq("BEGIN") {
+                // remember addres the first word after BEGIN
+                begin_stack.push(addresses.len() as i32);
+            } else if word.eq("UNTIL") {
+                let begin_pos = begin_stack.pop().ok_or_else(|| {
+                    format!(
+                        "Error: UNTIL at position {} without matching BEGIN",
+                        position
+                    )
+                })?;
+                // calcultaion offset
+                let offset = begin_pos - addresses.len() as i32;
+                let addr = self.words.len();
+
+                self.words.push(Word::JumpIfZero(offset));
+
+                addresses.push(addr);
+            } else if word.eq("WHILE") {
+                let addr = self.words.len();
+                while_stack.push(addr);
+
+                self.words.push(Word::JumpIfZero(0)); //put placeholder, which will be corrected by REPEAT
+
+                addresses.push(addr);
+            } else if word.eq("REPEAT") {
+                if let Some(while_word_addr) = while_stack.pop() {
+                    let begin_pos = begin_stack.pop().ok_or_else(|| {
+                        format!(
+                            "Error: REPEAT at position {} without matching BEGIN",
+                            position
+                        )
+                    })?;
+
+                    let begin_offset = begin_pos - addresses.len() as i32;
+                    // Put REPEAT as Jump to BEGIN
+                    let addr = self.words.len();
+                    self.words.push(Word::Jump(begin_offset));
+
+                    addresses.push(addr);
+
+                    // patch While JumpIfZero word
+                    match &mut self.words[while_word_addr] {
+                        Word::JumpIfZero(target) => {
+                            *target = addresses.len() as i32; // the next word after REPEAT/Jump
+                        }
+                        _ => {
+                            return Err(format!(
+                                "Internal error: expected JumpIfZero at address {}",
+                                while_word_addr
+                            ));
+                        }
+                    };
+                } else {
+                    return Err(format!(
+                        "Error: REPEAT at position: {} without matching WHILE word",
+                        position
+                    ));
+                }
             } else if word.eq("DO") {
                 // put DO in addresses
                 if let Some(&addr) = self.dictionary.get(word) {
@@ -678,7 +738,7 @@ impl Forth {
                 self.words.push(Word::JumpIfZero(0)); //0 is placeholder
 
                 // push the index in 'addresses' so we can find it later to patch
-                if_stack.push(addresses.len());
+                if_stack.push(addresses.len() as i32);
 
                 addresses.push(addr);
             } else if word.eq("ELSE") {
@@ -697,8 +757,8 @@ impl Forth {
 
                 // patch the earlier IF's JumIfZero to jump to the start of the ELSE block.
                 // calculate the offset
-                let offset = addresses.len() - if_pos;
-                let if_word_addr = addresses[if_pos];
+                let offset = addresses.len() as i32 - if_pos;
+                let if_word_addr = addresses[if_pos as usize];
                 //let else_address = self.words.len();
                 match &mut self.words[if_word_addr] {
                     Word::JumpIfZero(target) => {
@@ -718,7 +778,7 @@ impl Forth {
                 if let Some(else_pos) = else_stack.pop() {
                     // we have an ELSE before: patch the JMP insert at ELSE
                     let jmp_word_addr = addresses[else_pos];
-                    let offset = addresses.len() - else_pos;
+                    let offset = addresses.len() as i32 - else_pos as i32;
 
                     // let then_address = self.words.len();
                     match &mut self.words[jmp_word_addr] {
@@ -735,8 +795,8 @@ impl Forth {
                 } else if let Some(if_pos) = if_stack.pop() {
                     // no ELSE: patch the IF's JumpIfZero to jump to the
                     // instruction after THEN
-                    let if_word_addr = addresses[if_pos];
-                    let offset = addresses.len() - if_pos;
+                    let if_word_addr = addresses[if_pos as usize];
+                    let offset = addresses.len() as i32 - if_pos;
                     match &mut self.words[if_word_addr] {
                         Word::JumpIfZero(target) => {
                             *target = offset;
@@ -761,12 +821,24 @@ impl Forth {
             }
         }
 
-        // after processing all tokens, ensure all IF/ELSEs were closed
+        // after processing all tokens, ensure all IF/ELSEs DO/LOOP were closed
         if !if_stack.is_empty() {
             return Err("Error: IF without matching THEN".into());
         }
         if !else_stack.is_empty() {
             return Err("Error: ELSE without matching THEN".into());
+        }
+
+        if !do_stack.is_empty() {
+            return Err("Error: DO without matching LOOP/+LOOP".into());
+        }
+
+        if !begin_stack.is_empty() {
+            return Err("Error: BEGIN without matching UNTIL".into());
+        }
+
+        if !while_stack.is_empty() {
+            return Err("Error: WHILE without matching REPEAT".into());
         }
 
         let addr = self.words.len();
@@ -795,7 +867,6 @@ impl Forth {
             addr,
             self.get_word_by_address(addr)
         );
-        println!("\tSTACK: {:?}", &self.data_stack);
         */
         // We need to handle this carefully to avoid borrowing issues
         match &self.words[addr] {
@@ -839,16 +910,22 @@ impl Forth {
                 //}
             }
             Word::JumpIfZero(offset) => {
-                if let Some(Cell::BOOL(value)) = self.data_stack.pop() {
-                    if !value {
-                        return Ok(*offset as i32);
+                if let Some(value) = self.data_stack.pop() {
+                    let result = match value {
+                        Cell::BOOL(val) => val,
+                        Cell::INT(i) => i != 0,
+                        Cell::FLOAT(f) => f != 0.0,
+                        Cell::STRING(s) => !s.is_empty(),
+                    };
+                    if !result {
+                        return Ok(*offset);
                     }
                 } else {
                     return Err("Error: IF support only BOOL datatype".to_string());
                 }
                 return Ok(1); // offset to the next command
             }
-            Word::Jump(offset) => return Ok(*offset as i32 - 1),
+            Word::Jump(offset) => return Ok(*offset as i32),
             Word::Push(value) => {
                 self.data_stack.push(value.clone());
             }
@@ -939,6 +1016,9 @@ impl Forth {
                 }
             }
         }
+
+        // println!("\tSTACK: {:?}", &self.data_stack);
+
         Ok(1)
     }
 
