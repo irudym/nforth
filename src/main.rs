@@ -8,7 +8,21 @@ fn main() {
         .unwrap();
 
     let program1 = r#"
-        5 BEGIN 1 - DUP DUP . 0 > WHILE ." WORKING!" CR REPEAT
+        : HELLO ."Hello!" ;
+        HELLO
+        CR
+        12 DATE !
+        ."The current date is: "
+        DATE @ .
+        CR
+        22 DATE !
+        ."Now the date is: "
+        DATE @ .
+        CR
+        "New Year" DATE !
+        ."Now the date is string! "
+        DATE @ .
+        CR
     "#;
 
     forth.compile(program1).unwrap();

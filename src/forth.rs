@@ -48,6 +48,7 @@ enum Word {
     JumpLoop(i32),    // loop jump to do
     JumpLoopInc(i32), // incremental loop. value is teh offes to the command next to DO
     Push(Cell),       // push value to the data stack
+    Var(Address),     // variable, address pointd to the value in Variable heap.
 }
 
 impl Display for Word {
@@ -61,6 +62,7 @@ impl Display for Word {
             JumpLoop(offset) => format!("JumpLoop({})", offset),
             JumpLoopInc(offset) => format!("JumpLoopInc({})", offset),
             Push(val) => format!("Push({})", val),
+            Var(addr) => format!("Variable({})", addr),
         };
         write!(f, "{}", result)?;
         Ok(())
@@ -72,7 +74,8 @@ pub struct Forth {
     return_stack: Vec<Cell>,
     dictionary: HashMap<String, Address>,
     words: Vec<Word>,
-    //ip: Address, // instruction pointer
+    variables: Vec<Cell>, // heap to store variable values
+                          //ip: Address, // instruction pointer
 }
 
 fn fixed_right(s: &str, width: usize) -> String {
@@ -91,7 +94,7 @@ impl Forth {
             return_stack: Vec::new(),
             dictionary: HashMap::new(),
             words: Vec::new(),
-            //ip: 0,
+            variables: Vec::new(), //ip: 0,
         };
 
         forth.add_primitive("DO", |f| {
@@ -461,6 +464,30 @@ impl Forth {
             // PLACEHOLDER
         });
 
+        forth.add_primitive("!", |f| {
+            // ! - stores variable's value in the address, which shoudl be on the top of the stack
+            if let Some(Cell::INT(addr)) = f.data_stack.pop() {
+                if let Some(value) = f.data_stack.pop() {
+                    if addr as usize >= f.variables.len() {
+                        f.variables.push(value);
+                    } else {
+                        f.variables[addr as usize] = value;
+                    }
+                }
+            }
+        });
+
+        forth.add_primitive("@", |f| {
+            // @ - get variable value and put it onto stack
+            if let Some(Cell::INT(addr)) = f.data_stack.pop() {
+                if (addr as usize) < f.variables.len() {
+                    f.data_stack.push(f.variables[addr as usize].clone());
+                } else {
+                    panic!("Error: cannot read variable value, the address is out of the range");
+                }
+            }
+        });
+
         forth
     }
 
@@ -500,6 +527,13 @@ impl Forth {
                 }
                 Word::JumpLoopInc(val) => {
                     println!("{}: JumpLoopInc({})", address, val);
+                }
+                Word::Var(addr) => {
+                    print!("{}: Variable({})", address, addr);
+                    if let Some(name) = self.get_word_by_address(address) {
+                        print!(" => {name} = {}", self.variables[*addr]);
+                    }
+                    println!("");
                 }
             }
         }
@@ -817,7 +851,20 @@ impl Forth {
             } else if let Some(&addr) = self.dictionary.get(word) {
                 addresses.push(addr);
             } else {
-                return Err(format!("Error: Unknown word: {}", word));
+                //probably this is a variable
+                let addr = self.words.len();
+
+                let data_address = self.variables.len();
+
+                // push default INT(0) to variable to reserve a slot
+                self.variables.push(Cell::INT(0));
+
+                self.dictionary.insert(word.to_string(), addr);
+                self.words.push(Word::Var(data_address));
+
+                addresses.push(addr);
+
+                //return Err(format!("Error: Unknown word: {}", word));
             }
         }
 
@@ -1014,6 +1061,10 @@ impl Forth {
                         );
                     }
                 }
+            }
+            Word::Var(addr) => {
+                // cope variable's address to the stack
+                self.data_stack.push(Cell::INT(*addr as i32));
             }
         }
 
