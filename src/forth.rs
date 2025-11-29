@@ -24,6 +24,22 @@ impl Cell {
             BOOL(_) => "BOOL".to_string(),
         }
     }
+
+    fn add(&self, value: &Cell) -> Result<Cell, String> {
+        use Cell::*;
+        match (self, value) {
+            (INT(a), INT(b)) => Ok(INT(a + b)),
+            (FLOAT(a), FLOAT(b)) => Ok(FLOAT(a + b)),
+            (STRING(s1), STRING(s2)) => Ok(STRING(format!("{}{}", s1, s2))),
+            (INT(a), FLOAT(b)) => Ok(FLOAT(*a as f32 + b)),
+            (FLOAT(a), INT(b)) => Ok(FLOAT(a + *b as f32)),
+            (STRING(s1), INT(b)) => Ok(STRING(format!("{}{}", s1, b))),
+            (INT(a), STRING(s2)) => Ok(STRING(format!("{}{}", a, s2))),
+            (STRING(s1), FLOAT(b)) => Ok(STRING(format!("{}{}", s1, b))),
+            (FLOAT(a), STRING(s2)) => Ok(STRING(format!("{}{}", a, s2))),
+            _ => Err("Error: cannot execute Cell::add, unsupported types".into()),
+        }
+    }
 }
 
 impl Display for Cell {
@@ -484,6 +500,25 @@ impl Forth {
                     f.data_stack.push(f.variables[addr as usize].clone());
                 } else {
                     panic!("Error: cannot read variable value, the address is out of the range");
+                }
+            }
+        });
+
+        forth.add_primitive("+!", |f| {
+            // +! - adds the given value to the contents of the given
+            //      address.
+            if let (Some(Cell::INT(address)), Some(value)) =
+                (f.data_stack.pop(), f.data_stack.pop())
+            {
+                let address = address as usize;
+                if address >= f.variables.len() {
+                    panic!("Error: cannot get a variable, address is the out of the range");
+                }
+                //let var_value = &f.variables[address];
+                if let Ok(result) = &f.variables[address].add(&value) {
+                    f.variables[address] = result.clone();
+                } else {
+                    panic!("Error: Cannot execute !+, unsupported types");
                 }
             }
         });

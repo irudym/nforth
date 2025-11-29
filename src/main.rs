@@ -8,22 +8,15 @@ fn main() {
         .unwrap();
 
     let program1 = r#"
-        : HELLO ."Hello!" ;
-        HELLO
+        : ? @ . ;
+        0 EGGS !
+        " eggs I have!" EGGS +!
+        EGGS ?
         CR
-        12 DATE !
-        ."The current date is: "
-        DATE @ .
-        CR
-        22 DATE !
-        ."Now the date is: "
-        DATE @ .
-        CR
-        "New Year" DATE !
-        ."Now the date is string! "
-        DATE @ .
-        CR
+
     "#;
+
+    // TODO: .DATE name of the function raised an error!
 
     forth.compile(program1).unwrap();
 
