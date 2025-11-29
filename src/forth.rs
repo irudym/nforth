@@ -37,6 +37,8 @@ impl Cell {
             (INT(a), STRING(s2)) => Ok(STRING(format!("{}{}", a, s2))),
             (STRING(s1), FLOAT(b)) => Ok(STRING(format!("{}{}", s1, b))),
             (FLOAT(a), STRING(s2)) => Ok(STRING(format!("{}{}", a, s2))),
+            (STRING(s1), BOOL(b)) => Ok(STRING(format!("{}{}", s1, b))),
+            (BOOL(b), STRING(s2)) => Ok(STRING(format!("{}{}", b, s2))),
             _ => Err("Error: cannot execute Cell::add, unsupported types".into()),
         }
     }
@@ -244,34 +246,16 @@ impl Forth {
 
         forth.add_primitive("+", |f| {
             if let (Some(val_a), Some(val_b)) = (f.data_stack.pop(), f.data_stack.pop()) {
-                use Cell::*;
                 let type1 = val_a.type_name().clone();
                 let type2 = val_b.type_name().clone();
-                let result = match (val_a, val_b) {
-                    (INT(x), INT(y)) => INT(x + y),
-                    (INT(x), FLOAT(y)) => FLOAT(x as f32 + y),
-                    (FLOAT(x), INT(y)) => FLOAT(x + y as f32),
-                    (FLOAT(x), FLOAT(y)) => FLOAT(x + y),
-
-                    // String + anything
-                    (STRING(s), INT(x)) => STRING(format!("{}{}", s, x)),
-                    (STRING(s), FLOAT(x)) => STRING(format!("{}{}", s, x)),
-                    (STRING(s), STRING(t)) => STRING(format!("{}{}", s, t)),
-                    (STRING(s), BOOL(b)) => STRING(format!("{}{}", s, b)),
-
-                    // Anything + String
-                    (INT(x), STRING(s)) => STRING(format!("{}{}", x, s)),
-                    (FLOAT(x), STRING(s)) => STRING(format!("{}{}", x, s)),
-                    (BOOL(b), STRING(s)) => STRING(format!("{}{}", b, s)),
-
-                    _ => {
-                        panic!(
-                            "Error: Wrong type provided to operator {} + {}!",
-                            type1, type2
-                        );
-                    }
+                if let Ok(result) = val_a.add(&val_b) {
+                    f.data_stack.push(result);
+                } else {
+                    panic!(
+                        "Error: Wrong types provided to operator {} + {}!",
+                        type1, type2
+                    );
                 };
-                f.data_stack.push(result);
             }
         });
 
