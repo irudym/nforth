@@ -169,6 +169,38 @@ fn tokenizer(input: &str) -> Result<Vec<String>, String> {
 
                 tokens.push(format!("\"{}\"", literal));
             }
+            '[' => {
+                let string_pos = position;
+
+                //skip character
+                chars.next();
+                position += 1;
+
+                let mut array_string = String::new();
+                array_string.push('[');
+                let mut closed = false;
+
+                while let Some(&ch) = chars.peek() {
+                    chars.next();
+                    position += 1;
+                    if ch == ']' {
+                        closed = true;
+                        array_string.push(']');
+                        break;
+                    }
+                    if !ch.is_whitespace() {
+                        array_string.push(ch)
+                    }
+                }
+                if !closed {
+                    return Err(format!(
+                        "Error: array at position '{}' is not closed, expecting ] at the end of the array definition",
+                        string_pos
+                    ));
+                }
+
+                tokens.push(array_string);
+            }
 
             c if c.is_whitespace() => {
                 chars.next();

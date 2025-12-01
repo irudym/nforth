@@ -12,6 +12,7 @@ pub enum Cell {
     FLOAT(f32),
     STRING(String),
     BOOL(bool),
+    ARRAY(Vec<Cell>),
 }
 
 impl Cell {
@@ -22,6 +23,7 @@ impl Cell {
             FLOAT(_) => "FLOAT".to_string(),
             STRING(_) => "STRING".to_string(),
             BOOL(_) => "BOOL".to_string(),
+            ARRAY(_) => "ARRAY".to_string(),
         }
     }
 
@@ -39,6 +41,13 @@ impl Cell {
             (FLOAT(a), STRING(s2)) => Ok(STRING(format!("{}{}", a, s2))),
             (STRING(s1), BOOL(b)) => Ok(STRING(format!("{}{}", s1, b))),
             (BOOL(b), STRING(s2)) => Ok(STRING(format!("{}{}", b, s2))),
+
+            // Arrays
+            (ARRAY(a1), ARRAY(a2)) => {
+                let mut array1 = a1.clone();
+                array1.append(&mut a2.clone());
+                Ok(ARRAY(array1))
+            }
             _ => Err("Error: cannot execute Cell::add, unsupported types".into()),
         }
     }
@@ -52,6 +61,7 @@ impl Display for Cell {
             FLOAT(val) => val.to_string(),
             STRING(val) => val.clone(),
             BOOL(val) => val.to_string(),
+            ARRAY(val) => format!("{:?}", val),
         };
         write!(f, "{}", result)?;
         Ok(())
@@ -68,6 +78,7 @@ enum Word {
     Push(Cell),       // push value to the data stack
     Var(Address),     // variable, address pointd to the value in Variable heap.
     Const(Cell),      // constant value
+    Array(Address),   // array type
 }
 
 impl Display for Word {
@@ -83,6 +94,7 @@ impl Display for Word {
             Push(val) => format!("Push({})", val),
             Var(addr) => format!("Variable({})", addr),
             Const(value) => format!("Constant({})", value),
+            Array(addr) => format!("Array({:?}", addr),
         };
         write!(f, "{}", result)?;
         Ok(())
@@ -217,6 +229,7 @@ impl Forth {
                         }
                     }
                     STRING(x) => BOOL(x.is_empty()),
+                    ARRAY(vec) => BOOL(vec.len() == 0),
                 };
 
                 f.data_stack.push(result);
@@ -258,6 +271,25 @@ impl Forth {
                         type1, type2
                     );
                 };
+            }
+        });
+
+        forth.add_primitive("[+]", |f| {
+            if let (Some(val_a), Some(val_b)) = (f.data_stack.pop(), f.data_stack.pop()) {
+                // addreses
+                match (val_a, val_b) {
+                    (Cell::INT(addr_1), Cell::INT(addr_2)) => {
+                        let array = f.variables[addr_1 as usize].clone();
+                        if let Ok(result) = array.add(&f.variables[addr_2 as usize]) {
+                            f.data_stack.push(result);
+                        } else {
+                            panic!("Error: cannot make addition");
+                        }
+                    }
+                    _ => {
+                        panic!("Error: unsupported address types provided to [+]");
+                    }
+                }
             }
         });
 
@@ -362,6 +394,9 @@ impl Forth {
                                 FLOAT(x) => fixed_right(&format!("{}", x), spaces as usize),
                                 BOOL(b) => fixed_right(&format!("{}", b), spaces as usize),
                                 STRING(s) => fixed_right(&s, spaces as usize),
+                                _ => {
+                                    panic!("Error: unsupported type for U.R, only INT, FLOAT, BOOL, and STRING are supported");
+                                }
                             };
                             print!("{}", result);
                         }
@@ -483,11 +518,78 @@ impl Forth {
             }
         });
 
+        forth.add_primitive("[!]", |f| {
+            // ! - stores variable's value in the address and index, which shoudl be on the top of the stack
+            // 3 [0] ARRAY1 [!] stores INT(3) at index 0 in array ARRAY1
+            use Cell::*;
+            if let Some(INT(addr)) = f.data_stack.pop() {
+                if let Some(ARRAY(indexes)) = f.data_stack.pop() {
+                    if let Some(value) = f.data_stack.pop() {
+                        if let ARRAY(ref mut array) = f.variables[addr as usize] {
+                            for i in indexes {
+                                if let Cell::INT(indx ) = i {
+                                    if indx as usize >= array.len() {
+                                        panic!("Error: cannot read variable value, the array index {} is out of the range: {}", indx, array.len() - 1);
+                                    }
+                                    array[indx as usize] = value.clone();
+                                    // f.data_stack.push(array[indx as usize].clone());
+                                } else {
+                                    panic!("Error: cannot read variable value, the array index is a wrong type");
+                                }
+                            }
+                        } else {
+                            panic!("Error: Wrong value at the provided address: {}, should be array", addr);
+                        }
+                    }
+                } else {
+                    panic!(
+                        "Error: Cannot execute word [!], indexes should be provided in an array"
+                    );
+                }
+            }
+        });
+
         forth.add_primitive("@", |f| {
             // @ - get variable value and put it onto stack
+            // in case of array: index ARRAY1 @ - get element with index
             if let Some(Cell::INT(addr)) = f.data_stack.pop() {
                 if (addr as usize) < f.variables.len() {
-                    f.data_stack.push(f.variables[addr as usize].clone());
+                    if let Cell::ARRAY(array) = &f.variables[addr as usize] {
+                        // get index at array
+                        match f.data_stack.pop() {
+                            Some(Cell::INT(index)) => {
+                                f.data_stack.push(array[index as usize].clone());
+                            }
+                            Some(Cell::ARRAY(indexes)) => {
+                                for i in indexes.iter().rev() {
+                                    if let Cell::INT(indx) = i {
+                                        if *indx as usize >= array.len() {
+                                            panic!("Error: cannot read variable value, the array index {} is out of the range: {}", indx, array.len() - 1);
+                                        }
+                                        f.data_stack.push(array[*indx as usize].clone());
+                                    } else {
+                                        panic!("Error: cannot read variable value, the array index is a wrong type");
+                                    }
+                                }
+                            }
+                            _ => {
+                                panic!("Error: cannot read variable value, the array index is a wrong type");
+                            }
+                        }
+                    } else {
+                        f.data_stack.push(f.variables[addr as usize].clone());
+                    }
+                } else {
+                    panic!("Error: cannot read variable value, the address is out of the range");
+                }
+            }
+        });
+
+        forth.add_primitive("[@]", |f| {
+            // [@] - get array value and put it onto stack
+            if let Some(Cell::INT(addr)) = f.data_stack.pop() {
+                if (addr as usize) < f.variables.len() {
+                    f.data_stack.push(f.variables[addr as usize].clone())
                 } else {
                     panic!("Error: cannot read variable value, the address is out of the range");
                 }
@@ -563,6 +665,9 @@ impl Forth {
                 Word::Const(value) => {
                     println!("{}: Constant({})", address, value);
                 }
+                Word::Array(values) => {
+                    println!("{}: Array({})", address, values);
+                }
             }
         }
     }
@@ -601,6 +706,24 @@ impl Forth {
         // FLOAT
         if let Ok(v) = s.parse::<f32>() {
             return Ok(FLOAT(v));
+        }
+
+        if word.starts_with('[') && word.ends_with(']') {
+            // Extract inside of brackets
+            let content = word[1..word.len() - 1].trim();
+            let mut result = Vec::new();
+            // Split by comma
+            let parts = content.split(',').map(|s| s.trim());
+            for part in parts {
+                // Use your existing parse_word logic
+                match Forth::parse_word(part) {
+                    Ok(cell) => result.push(cell),
+                    Err(err) => {
+                        return Err(format!("Error parsing array element '{}': {}", part, err));
+                    }
+                }
+            }
+            return Ok(ARRAY(result));
         }
 
         Err(format!("Could not parse `{s}` into a Cell"))
@@ -904,6 +1027,20 @@ impl Forth {
                         position + 1
                     ));
                 }
+            } else if word.eq("ARRAY") || word.eq("VEC") {
+                // the last definition of word was variable, need to change it to Array
+                if let Some(Word::Var(data_address)) = self.words.pop() {
+                    //remove command from addresses, as we just created the array.
+                    addresses.pop();
+                    self.variables[data_address] = Cell::ARRAY(Vec::new());
+
+                    self.words.push(Word::Array(data_address));
+                } else {
+                    return Err(format!(
+                        "Internal error: the name of array variable should be defined as position: {}",
+                        position - 1
+                    ));
+                }
             } else if let Some(&addr) = self.dictionary.get(word) {
                 addresses.push(addr);
             } else {
@@ -972,6 +1109,7 @@ impl Forth {
             self.get_word_by_address(addr)
         );
         */
+
         // We need to handle this carefully to avoid borrowing issues
         match &self.words[addr] {
             Word::Primitive(_) => {
@@ -1020,6 +1158,7 @@ impl Forth {
                         Cell::INT(i) => i != 0,
                         Cell::FLOAT(f) => f != 0.0,
                         Cell::STRING(s) => !s.is_empty(),
+                        Cell::ARRAY(array) => !array.is_empty(),
                     };
                     if !result {
                         return Ok(*offset);
@@ -1120,11 +1259,15 @@ impl Forth {
                 }
             }
             Word::Var(addr) => {
-                // cope variable's address to the stack
+                // copy variable's address to the stack
                 self.data_stack.push(Cell::INT(*addr as i32));
             }
             Word::Const(value) => {
                 self.data_stack.push(value.clone());
+            }
+            Word::Array(addr) => {
+                // copy variable's address to the stack
+                self.data_stack.push(Cell::INT(*addr as i32));
             }
         }
 

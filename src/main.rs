@@ -8,24 +8,32 @@ fn main() {
         .unwrap();
 
     let program1 = r#"
-        : ? @ . ;
-        0 EGGS !
-        " eggs I have!" EGGS +!
-        EGGS ?
-        CR
 
-        220 CONST LIMIT
+        ARRAY1 ARRAY
+        [1,2,3 ,4, 5] ARRAY1 !
+        ( get the second element of the array)
 
-        ."The speed limit is: " LIMIT .
+        1 ARRAY1 @ . CR
 
-        330 CONSTANT VOLTAGE
+        (get the forth element)
+        3 ARRAY1 @ . CR
 
-         15905 CONST SHUTTER
+        (get the first and the fifth elements)
+        [0, 4] ARRAY1 @ . ." " . CR
 
-         : OPEN 1 SWAP ! ;
-         : CLOSE 0 SWAP ! ;
+        (change array value at the index)
+        67 [0] ARRAY1 [!]
+        ."Array: " ARRAY1 [@] . CR
 
-         SHUTTER OPEN
+        [1,2 , 4.5, "Hello!" ] mixed_array !
+
+        : new[+] [@] SWAP [@] + ;
+
+        mixed_array [@] . CR
+        mixed_array ARRAY1  new[+] new_array !
+        ."New array: " new_array [@] . CR
+
+
 
     "#;
 
