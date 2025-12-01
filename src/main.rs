@@ -14,6 +14,19 @@ fn main() {
         EGGS ?
         CR
 
+        220 CONST LIMIT
+
+        ."The speed limit is: " LIMIT .
+
+        330 CONSTANT VOLTAGE
+
+         15905 CONST SHUTTER
+
+         : OPEN 1 SWAP ! ;
+         : CLOSE 0 SWAP ! ;
+
+         SHUTTER OPEN
+
     "#;
 
     // TODO: .DATE name of the function raised an error!

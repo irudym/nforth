@@ -67,6 +67,7 @@ enum Word {
     JumpLoopInc(i32), // incremental loop. value is teh offes to the command next to DO
     Push(Cell),       // push value to the data stack
     Var(Address),     // variable, address pointd to the value in Variable heap.
+    Const(Cell),      // constant value
 }
 
 impl Display for Word {
@@ -81,6 +82,7 @@ impl Display for Word {
             JumpLoopInc(offset) => format!("JumpLoopInc({})", offset),
             Push(val) => format!("Push({})", val),
             Var(addr) => format!("Variable({})", addr),
+            Const(value) => format!("Constant({})", value),
         };
         write!(f, "{}", result)?;
         Ok(())
@@ -469,7 +471,11 @@ impl Forth {
             if let Some(Cell::INT(addr)) = f.data_stack.pop() {
                 if let Some(value) = f.data_stack.pop() {
                     if addr as usize >= f.variables.len() {
-                        f.variables.push(value);
+                        //f.variables.push(value);
+                        panic!(
+                            "Error: Cannot write value, the address {} is our of range",
+                            addr
+                        );
                     } else {
                         f.variables[addr as usize] = value;
                     }
@@ -553,6 +559,9 @@ impl Forth {
                         print!(" => {name} = {}", self.variables[*addr]);
                     }
                     println!("");
+                }
+                Word::Const(value) => {
+                    println!("{}: Constant({})", address, value);
                 }
             }
         }
@@ -692,9 +701,10 @@ impl Forth {
         let mut begin_stack = Vec::new();
         let mut while_stack = Vec::new();
 
-        for (position, &word) in definition.iter().enumerate() {
+        let mut words_iter = definition.iter().enumerate();
+        while let Some((position, &word)) = words_iter.next() {
             // 1. Literal values -> push a primitive that will push the Cell at runtime
-            if let Ok(val) = Forth::parse_word(&word) {
+            if let Ok(val) = Forth::parse_word(word) {
                 let addr = self.words.len();
 
                 self.words.push(Word::Push(val.clone()));
@@ -867,10 +877,38 @@ impl Forth {
                         position
                     ));
                 }
+            } else if word.eq("CONSTANT") || (*word).eq("CONST") {
+                // get constant name
+                if let Some((_, &const_name)) = words_iter.next() {
+                    // check the constant name
+                    // check the word availability
+                    if self.dictionary.contains_key(const_name) {
+                        return Err(format!("The word: {} is already defined", const_name));
+                    }
+
+                    // get value, should be already in addresses as push(value), get this value
+                    if let Some(Word::Push(value)) = self.words.pop() {
+                        let addr = self.words.len();
+                        self.dictionary.insert(const_name.to_string(), addr);
+                        self.words.push(Word::Const(value.clone()));
+
+                        addresses.push(addr);
+                    } else {
+                        return Err(
+                            "Internal error: cinstant value should be stay before the word CONSTANT".into()
+                        );
+                    }
+                } else {
+                    return Err(format!(
+                        "Internal error: cannot find constant name at position: {}",
+                        position + 1
+                    ));
+                }
             } else if let Some(&addr) = self.dictionary.get(word) {
                 addresses.push(addr);
             } else {
                 //probably this is a variable
+
                 let addr = self.words.len();
 
                 let data_address = self.variables.len();
@@ -1084,6 +1122,9 @@ impl Forth {
             Word::Var(addr) => {
                 // cope variable's address to the stack
                 self.data_stack.push(Cell::INT(*addr as i32));
+            }
+            Word::Const(value) => {
+                self.data_stack.push(value.clone());
             }
         }
 
