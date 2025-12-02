@@ -1129,6 +1129,9 @@ impl Forth {
                 // Save return address
                 // self.return_stack.push(Cell::INT(self.ip));
 
+                //remember variables size, all new variables should be cleared after the end of the composity execution
+                let variables_size = self.variables.len();
+
                 //Execute each word in the thread
                 let mut instruction_pointer: i32 = 0;
                 loop {
@@ -1145,6 +1148,9 @@ impl Forth {
                         break;
                     }
                 }
+
+                // restore variables size
+                self.variables.truncate(variables_size);
 
                 // Restore return address
                 // if let Some(ret_addr) = self.return_stack.pop() {
