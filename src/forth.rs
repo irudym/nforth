@@ -751,16 +751,30 @@ impl Forth {
             if visited.contains(name) {
                 return Ok(());
             }
-            if !visiting.insert(name.to_string()) {
-                return Err(format!(
-                    "Circular dependecy detected for function '{}'",
-                    name
-                ));
+
+            // If we re-enter the same function (self recursion) -> allowed
+            if visiting.contains(name) {
+                return Ok(()); // Ignore self recursion
             }
+
+            visiting.insert(name.to_string());
 
             let deps = Forth::extract_dependencies(funcs.get(name).unwrap(), funcs);
 
             for dep in deps {
+                // Skip self recursion explicitly
+                if dep == name {
+                    continue;
+                }
+
+                // Check if entering a dependency already in path -> mutual recursion
+                if visiting.contains(&dep) {
+                    return Err(format!(
+                        "Mutual recursion detected: '{}'<-> '{}'",
+                        name, dep
+                    ));
+                }
+
                 dfs(&dep, funcs, visiting, visited, order)?;
             }
 
@@ -814,6 +828,8 @@ impl Forth {
     }
 
     pub fn compile_vector(&mut self, name: &str, definition: Vec<&str>) -> Result<(), String> {
+        println!("\nDEBUG: compile_vector {} : {:?}", name, definition);
+
         let mut addresses = Vec::new();
 
         // Stacks to manage unresolved IF/ELSE/THEN patches
@@ -823,6 +839,11 @@ impl Forth {
         let mut do_stack = Vec::new();
         let mut begin_stack = Vec::new();
         let mut while_stack = Vec::new();
+
+        // create a record in the dictionary and words to support the recursions.
+        let composite_addr = self.words.len();
+        self.dictionary.insert(name.to_string(), composite_addr);
+        self.words.push(Word::Composite(vec![]));
 
         let mut words_iter = definition.iter().enumerate();
         while let Some((position, &word)) = words_iter.next() {
@@ -1082,9 +1103,8 @@ impl Forth {
             return Err("Error: WHILE without matching REPEAT".into());
         }
 
-        let addr = self.words.len();
-        self.words.push(Word::Composite(addresses));
-        self.dictionary.insert(name.to_string(), addr);
+        // update vector in words
+        self.words[composite_addr] = Word::Composite(addresses);
 
         Ok(())
     }
@@ -1101,13 +1121,13 @@ impl Forth {
 
     // executes the word and returns offset to the next command
     fn execute_word(&mut self, addr: Address) -> Result<i32, String> {
-        /*
-        println!(
+        /*println!(
             "EXECUTE: {}({}) : {:?}",
             &self.words[addr],
             addr,
             self.get_word_by_address(addr)
         );
+        println!("\tSTACK BEFORE: {:?}", self.data_stack);
         */
 
         // We need to handle this carefully to avoid borrowing issues
@@ -1277,7 +1297,7 @@ impl Forth {
             }
         }
 
-        // println!("\tSTACK: {:?}", &self.data_stack);
+        //println!("\tSTACK AFTER: {:?}", self.data_stack);
 
         Ok(1)
     }
