@@ -8,7 +8,7 @@ fn main() {
 
     let _program1 = r#"
         : recursive DUP 0 > IF DUP . CR 1 - recursive  THEN ;
-        10 recursive
+        10000000 recursive
     "#;
 
     // TODO: .DATE name of the function raised an error!
